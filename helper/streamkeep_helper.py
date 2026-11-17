@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""YT Offline helper.
+"""StreamKeep helper.
 
 Downloads YouTube videos with yt-dlp into a local cache and serves them on
-127.0.0.1 so the Safari extension can play them on the YouTube page when the
+127.0.0.1 so the browser extension (Safari, Chrome, Firefox) can play them on the YouTube page when the
 internet drops.
 
 Endpoints (all GET, JSON unless noted):
   /ping                          -> {"ok": true}
   /cache?v=<id>&q=<h>&c=<codecs>&max=<min>
                                  -> start caching <id> (q: max height, 0 = best;
-                                    c: comma list of codecs Safari can play, e.g.
-                                    av01,vp09,avc1; max: skip videos longer than N minutes)
+                                    c: comma list of codecs the browser can play, e.g.
+                                    av01,vp09,avc1,mp4a (audio: mp4a or opus); max: skip videos longer than N minutes)
   /status?v=<id>                 -> {"state": none|queued|downloading|done|error|skipped,
                                      "progress", "title", "size", "height", "vcodec"}
   /cancel?v=<id>                 -> stop a running download
@@ -24,7 +24,7 @@ Endpoints (all GET, JSON unless noted):
   /video/<id>.mp4                -> the cached file, fragmented MP4 (supports Range requests)
 
 Files are stored as fragmented MP4 so the extension can feed them into a
-MediaSource on the YouTube page (Safari blocks http://127.0.0.1 media on https pages).
+MediaSource on the YouTube page (browsers block http://127.0.0.1 media on https pages).
 """
 import glob
 import json
@@ -33,14 +33,16 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-PORT = int(os.environ.get("YTO_PORT", "8765"))
-CACHE = os.path.expanduser(os.environ.get("YTO_CACHE", "~/Movies/YT Offline Cache"))
-MAX_PARALLEL = int(os.environ.get("YTO_MAX_PARALLEL", "2"))
+PORT = int(os.environ.get("STREAMKEEP_PORT", "8765"))
+CACHE = os.path.expanduser(os.environ.get(
+    "STREAMKEEP_CACHE", "~/Movies/StreamKeep" if sys.platform == "darwin" else "~/Videos/StreamKeep"))
+MAX_PARALLEL = int(os.environ.get("STREAMKEEP_MAX_PARALLEL", "2"))
 DL_DIR = os.path.join(CACHE, ".dl")
 CONFIG_PATH = os.path.join(CACHE, ".config.json")
 DEFAULT_CONFIG = {"days": 7, "maxgb": 30}
@@ -184,7 +186,7 @@ def build_index(path):
                         video_tid = tid
                         codecs.insert(0, _video_codec(moov[s:e]))
                     elif kind == b"soun":
-                        codecs.append("mp4a.40.2")
+                        codecs.append("opus" if b"dOps" in moov[s:e] else "mp4a.40.2")
                 init_end = pos + size
             elif typ == b"moof":
                 f.seek(pos)
@@ -270,14 +272,23 @@ def set_job(vid, **kw):
 
 
 def format_spec(q, codecs):
+    """yt-dlp -f for the best stream the browser can play. codecs holds video
+    codecs (av01, vp09, avc1) plus one audio codec: mp4a (AAC) or opus, for
+    browsers without AAC such as plain Chromium."""
     allowed = "|".join(CODEC_RE[c] for c in codecs if c in CODEC_RE) or "avc1"
     h = f"[height<={q}]" if q else ""
     v = f"bv*[vcodec~='^({allowed})']{h}"
+    if "opus" in codecs and "mp4a" not in codecs:
+        a = "ba[acodec=opus]"
+        tail = ""
+    else:
+        a = "ba[ext=m4a]"
+        tail = f"/b[ext=mp4]{h}/b[ext=mp4]"
     return (
-        f"{v}[dynamic_range=SDR]+ba[ext=m4a]"  # prefer SDR: HDR looks washed out on many screens
-        f"/{v}+ba[ext=m4a]"
-        f"/bv*[vcodec^=avc1]{h}+ba[ext=m4a]"
-        f"/b[ext=mp4]{h}/b[ext=mp4]"
+        f"{v}[dynamic_range=SDR]+{a}"  # prefer SDR: HDR looks washed out on many screens
+        f"/{v}+{a}"
+        f"/bv*[vcodec^=avc1]{h}+{a}"
+        f"{tail}"
     )
 
 
@@ -479,10 +490,10 @@ def cleanup_loop():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "YTOffline/1.1"
+    server_version = "StreamKeep/2.0"
 
     def log_message(self, fmt, *args):
-        # log API calls (not every video byte-range request) so it's visible that Safari reaches us
+        # log API calls (not every video byte-range request) so it's visible that the extension reaches us
         if not self.path.startswith(("/video/", "/status", "/list", "/log")):
             print(time.strftime("%H:%M:%S"), self.command, self.path, args[1] if len(args) > 1 else "", flush=True)
 
@@ -525,7 +536,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "bad id"}, 400)
         if path == "/cache":
             height = int(arg("q", "0") or 0) if arg("q", "0").isdigit() else 0
-            codecs = [c for c in arg("c", "avc1").split(",") if c in CODEC_RE] or ["avc1"]
+            toks = arg("c", "avc1").split(",")
+            codecs = [c for c in toks if c in CODEC_RE] or ["avc1"]
+            codecs.append("opus" if "opus" in toks and "mp4a" not in toks else "mp4a")
             max_min = int(arg("max", "0")) if arg("max", "0").isdigit() else 0
             return self._json(start_cache(vid, height, codecs, max_min))
         if path == "/status":
@@ -542,7 +555,8 @@ class Handler(BaseHTTPRequestHandler):
             clear_all()
             return self._json(list_cache())
         if path == "/open":
-            subprocess.Popen(["open", CACHE])
+            opener = {"darwin": ["open"], "win32": ["explorer"]}.get(sys.platform, ["xdg-open"])
+            subprocess.Popen(opener + [CACHE])
             return self._json({"ok": True})
         if path == "/config":
             cfg = load_config()
@@ -620,7 +634,7 @@ def main():
     threading.Thread(target=cleanup_loop, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     srv.daemon_threads = True
-    print(f"YT Offline helper on http://127.0.0.1:{PORT}, cache: {CACHE}", flush=True)
+    print(f"StreamKeep helper on http://127.0.0.1:{PORT}, cache: {CACHE}", flush=True)
     srv.serve_forever()
 
 

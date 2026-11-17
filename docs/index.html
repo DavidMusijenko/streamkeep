@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StreamKeep: offline playback for YouTube</title>
+<meta name="description" content="A free, open-source browser extension for Safari, Chrome and Firefox. It saves the YouTube video you're watching in the background, so it keeps playing on the same page when your internet drops.">
+<meta property="og:title" content="StreamKeep: offline playback for YouTube">
+<meta property="og:description" content="Your internet drops. The video keeps playing, on the same page. Free and open source for Safari, Chrome and Firefox.">
+<meta property="og:image" content="https://davidmusijenko.github.io/streamkeep/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icon-green.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eef1f5;
+    --panel: #ffffff;
+    --ink: #1b2333;
+    --slate: #5d6879;
+    --rule: #d5dbe4;
+    --red: #e5322d;
+    --green: #22a046;
+    --track: #c7ceda;
+    --display: "Bricolage Grotesque", system-ui, sans-serif;
+    --body: "Instrument Sans", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #121826; --panel: #1b2335; --ink: #e8ecf3; --slate: #98a3b6;
+      --rule: #2b3549; --track: #3a465e; --green: #34c25c; --red: #f04a44;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 1.0625rem/1.6 var(--body);
+  }
+  a { color: inherit; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* top bar */
+  .top { display: flex; align-items: center; gap: 12px; padding: 22px 0; }
+  .top img { width: 32px; height: 32px; }
+  .top b { font: 700 1.2rem var(--display); letter-spacing: -0.01em; flex: 1; }
+  .top a { font-weight: 500; text-decoration: none; padding: 8px 14px; border: 1.5px solid var(--ink); border-radius: 999px; }
+  .top a:hover { background: var(--ink); color: var(--paper); }
+
+  /* hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; padding: 48px 0 88px; }
+  h1 {
+    font: 800 clamp(2.6rem, 6vw, 4.6rem)/0.98 var(--display);
+    letter-spacing: -0.035em; margin: 0 0 24px;
+  }
+  .lede { font-size: 1.2rem; color: var(--slate); max-width: 34ch; margin: 0 0 32px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; font: 600 1rem var(--body); text-decoration: none;
+    padding: 13px 22px; border-radius: 999px; border: 1.5px solid var(--ink);
+  }
+  .btn.solid { background: var(--ink); color: var(--paper); }
+  .btn.solid:hover { background: var(--green); border-color: var(--green); color: #fff; }
+  .btn:not(.solid):hover { background: var(--panel); }
+  .browsers { margin: 22px 0 0; font-size: .95rem; color: var(--slate); }
+
+  /* the demo player */
+  .demo { position: relative; }
+  .chrome {
+    background: var(--panel); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 1px 0 var(--rule), 0 30px 60px -30px rgba(27, 35, 51, .45);
+  }
+  .bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  .bar .dots { display: flex; gap: 6px; }
+  .bar .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
+  .bar .url { flex: 1; font-size: .8rem; color: var(--slate); background: var(--paper); border-radius: 6px; padding: 4px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ext { position: relative; width: 26px; height: 26px; }
+  .ext img { width: 26px; height: 26px; position: absolute; inset: 0; transition: opacity .4s; }
+  .ext .g { opacity: 0; }
+  .ext .pct {
+    position: absolute; right: -10px; bottom: -6px; font: 700 10px/1 var(--body);
+    background: #1565c0; color: #fff; padding: 2px 4px; border-radius: 6px; transition: opacity .3s;
+  }
+  .wifi { display: flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 600; color: var(--green); min-width: 70px; justify-content: flex-end; }
+  .wifi svg { width: 16px; height: 16px; }
+  .wifi .off { display: none; }
+
+  .screen { position: relative; aspect-ratio: 16 / 9; background: #0f2236; overflow: hidden; }
+  .scene { position: absolute; inset: 0; width: 200%; height: 100%; }
+  .scene svg { width: 100%; height: 100%; display: block; }
+  .spinner {
+    position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px;
+    border: 4px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; opacity: 0;
+  }
+  .controls { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 16px 12px; background: linear-gradient(transparent, rgba(0,0,0,.55)); }
+  .track { position: relative; height: 5px; border-radius: 3px; background: rgba(255,255,255,.25); }
+  .track span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  .track .saved { background: rgba(80, 220, 120, .55); width: 0; }
+  .track .yt { background: rgba(255,255,255,.55); width: 0; }
+  .track .played { background: var(--red); width: 0; }
+  .track .knob { position: absolute; top: 50%; width: 13px; height: 13px; margin: -6.5px; border-radius: 50%; background: var(--red); left: 0; }
+  .row { display: flex; justify-content: space-between; margin-top: 8px; font: 500 .75rem var(--body); color: #fff; }
+  .tag { opacity: 0; transition: opacity .3s; color: #9ff0b6; }
+  .caption { margin: 18px 4px 0; font-size: .95rem; color: var(--slate); min-height: 3.2em; }
+  .caption b { color: var(--ink); font-weight: 600; }
+
+  /* sections */
+  section { padding: 80px 0; border-top: 1px solid var(--rule); }
+  h2 { font: 700 clamp(1.8rem, 3.4vw, 2.6rem)/1.08 var(--display); letter-spacing: -0.025em; margin: 0 0 16px; max-width: 22ch; }
+  .intro { color: var(--slate); max-width: 60ch; margin: 0 0 44px; }
+
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; counter-reset: s; }
+  .steps li { counter-increment: s; padding: 22px 26px 0 0; position: relative; }
+  .steps li::before {
+    content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+    font: 700 .95rem var(--display); background: var(--panel); border: 1.5px solid var(--rule); margin-bottom: 16px;
+  }
+  .steps li:nth-child(3)::before { border-color: var(--red); color: var(--red); }
+  .steps li:nth-child(4)::before { background: var(--green); border-color: var(--green); color: #fff; }
+  .steps li::after { content: ""; position: absolute; top: 39px; left: 44px; right: 10px; height: 1.5px; background: var(--rule); }
+  .steps li:last-child::after { display: none; }
+  .steps h3 { font: 700 1.15rem/1.25 var(--display); margin: 0 0 6px; }
+  .steps p { margin: 0; color: var(--slate); font-size: .98rem; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 64px; align-items: start; }
+  .features { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 40px; margin: 0; }
+  .features dt { font-weight: 600; margin-bottom: 4px; }
+  .features dd { margin: 0; color: var(--slate); font-size: .98rem; }
+  .shot { width: 100%; height: auto; border-radius: 14px; box-shadow: 0 1px 0 var(--rule), 0 30px 60px -30px rgba(27, 35, 51, .45); background: #fff; }
+  .shot-cap { font-size: .85rem; color: var(--slate); margin-top: 10px; }
+
+  .install { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .card { background: var(--panel); border-radius: 14px; padding: 26px; border: 1px solid var(--rule); }
+  .card h3 { font: 700 1.3rem var(--display); margin: 0 0 4px; }
+  .card .os { color: var(--slate); font-size: .9rem; margin: 0 0 16px; }
+  .card ol { margin: 0; padding-left: 1.2em; }
+  .card li { margin-bottom: 8px; font-size: .97rem; }
+  .card li::marker { color: var(--slate); font-weight: 600; }
+  code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--paper); padding: 2px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+  .first { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 26px; margin-bottom: 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; }
+  .first h3 { font: 700 1.3rem var(--display); margin: 0 0 6px; }
+  .first p { margin: 0; color: var(--slate); }
+  pre { margin: 0; background: var(--ink); color: var(--paper); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: .88rem/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .faq { display: grid; grid-template-columns: 1fr 1fr; gap: 36px 56px; }
+  .faq h3 { font: 700 1.15rem/1.3 var(--display); margin: 0 0 8px; }
+  .faq p { margin: 0; color: var(--slate); }
+
+  footer { padding: 40px 0 56px; border-top: 1px solid var(--rule); color: var(--slate); font-size: .9rem; }
+  footer p { margin: 0 0 6px; max-width: 80ch; }
+
+  @media (max-width: 900px) {
+    .hero, .split, .first { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+    .hero { padding-top: 24px; }
+    .steps { grid-template-columns: 1fr 1fr; gap: 28px 0; }
+    .steps li::after { display: none; }
+    .install, .faq, .features { grid-template-columns: minmax(0, 1fr); }
+    .split .shot-wrap { max-width: 330px; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 0 16px; }
+    .steps { grid-template-columns: minmax(0, 1fr); }
+    section { padding: 56px 0; }
+    .top a { padding: 6px 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <img src="icon.png" alt="">
+    <b>StreamKeep</b>
+    <a href="https://github.com/DavidMusijenko/streamkeep">GitHub</a>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <h1>Your internet drops. The video keeps going.</h1>
+        <p class="lede">StreamKeep saves the YouTube video you're watching in the background. When the connection goes, it carries on playing in the same page, from the same second.</p>
+        <div class="cta">
+          <a class="btn solid" href="#install">Install it</a>
+          <a class="btn" href="https://github.com/DavidMusijenko/streamkeep">View the source</a>
+        </div>
+        <p class="browsers">Free and open source. Safari, Chrome and Firefox.</p>
+      </div>
+
+      <div class="demo" aria-label="Animation: a video saves to 100%, the Wi-Fi drops, and playback continues from the saved copy">
+        <div class="chrome">
+          <div class="bar">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="url">youtube.com/watch?v=night-train-alps</div>
+            <div class="wifi" id="wifi">
+              <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12.2a10 10 0 0 1 13 0M9 15.8a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.3" fill="currentColor"/></svg>
+              <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12.2a10 10 0 0 1 13 0M9 15.8a5 5 0 0 1 6 0"/><path d="M3 3l18 18"/></svg>
+              <span id="wifiText">Online</span>
+            </div>
+            <div class="ext"><img src="icon.png" alt=""><img class="g" src="icon-green.png" alt=""><span class="pct" id="pct">0%</span></div>
+          </div>
+          <div class="screen">
+            <div class="scene" id="scene">
+              <svg viewBox="0 0 1600 450" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16324f"/><stop offset="1" stop-color="#3d6a8a"/></linearGradient>
+                </defs>
+                <rect width="1600" height="450" fill="url(#sky)"/>
+                <g fill="#e8f0f7" opacity=".9"><circle cx="120" cy="60" r="2"/><circle cx="340" cy="40" r="1.5"/><circle cx="610" cy="80" r="2"/><circle cx="910" cy="50" r="1.5"/><circle cx="1180" cy="70" r="2"/><circle cx="1420" cy="35" r="1.5"/></g>
+                <path d="M0 300 L120 170 L220 240 L360 110 L500 260 L620 180 L760 290 L800 300 L920 170 L1020 240 L1160 110 L1300 260 L1420 180 L1560 290 L1600 300 V450 H0Z" fill="#284b68"/>
+                <path d="M120 170 L160 213 L140 205 L100 192Z M360 110 L410 165 L380 150 L330 142Z M920 170 L960 213 L940 205 L900 192Z M1160 110 L1210 165 L1180 150 L1130 142Z" fill="#dfe9f2"/>
+                <path d="M0 340 Q200 300 400 335 T800 340 Q1000 300 1200 335 T1600 340 V450 H0Z" fill="#1d3a52"/>
+                <g fill="#0f2236"><path d="M60 360 l18 -50 l18 50Z M260 365 l14 -40 l14 40Z M520 362 l20 -56 l20 56Z M700 366 l14 -40 l14 40Z M860 360 l18 -50 l18 50Z M1060 365 l14 -40 l14 40Z M1320 362 l20 -56 l20 56Z M1500 366 l14 -40 l14 40Z"/></g>
+                <rect x="0" y="388" width="1600" height="62" fill="#0b1a2a"/>
+                <rect x="0" y="384" width="1600" height="4" fill="#5d7690"/>
+              </svg>
+            </div>
+            <div class="spinner" id="spin"></div>
+            <div class="controls">
+              <div class="track">
+                <span class="saved" id="saved"></span>
+                <span class="yt" id="yt"></span>
+                <span class="played" id="played"></span>
+                <span class="knob" id="knob"></span>
+              </div>
+              <div class="row"><span id="time">0:00 / 4:12</span><span class="tag" id="tag">Playing the saved copy</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="caption" id="caption" aria-live="polite"><b>You open a video.</b> StreamKeep starts saving it right away, and the toolbar icon counts up.</p>
+      </div>
+    </div>
+
+    <section id="how">
+      <h2>No download button. No separate file.</h2>
+      <p class="intro">You keep watching on YouTube like you always do. StreamKeep works behind it, and only steps in when the stream stops.</p>
+      <ol class="steps">
+        <li><h3>Open any video</h3><p>A small helper on your computer starts saving it at the quality you picked.</p></li>
+        <li><h3>Watch as usual</h3><p>The toolbar icon shows the progress, and turns green once the whole video is saved.</p></li>
+        <li><h3>The connection drops</h3><p>Wi-Fi cuts out, the train enters a tunnel, or YouTube shows its error screen.</p></li>
+        <li><h3>It keeps playing</h3><p>The saved copy takes over in the same player, from the same second. Click "Back to YouTube" when you're online again.</p></li>
+      </ol>
+    </section>
+
+    <section>
+      <div class="split">
+        <div>
+          <h2>Small, and stays out of the way</h2>
+          <p class="intro">Everything is in the toolbar popup. Saved videos clean themselves up, so the cache never fills your disk.</p>
+          <dl class="features">
+            <div><dt>Sharp picture</dt><dd>Up to 4K, in VP9 or AV1 when your browser plays them, H.264 when it doesn't.</dd></div>
+            <div><dt>Only switches when it has to</dt><dd>A slow moment isn't enough. StreamKeep checks the connection is really gone before taking over.</dd></div>
+            <div><dt>Cleans up after itself</dt><dd>Videos you haven't watched for a week are deleted, and the cache has a size limit. Both are adjustable.</dd></div>
+            <div><dt>Stays on your computer</dt><dd>No account, no server, no tracking. The extension only talks to the helper on your own machine.</dd></div>
+            <div><dt>Full controls</dt><dd>Seek, volume, fullscreen and the usual YouTube keys (space, j, l, m, f) on the saved copy.</dd></div>
+            <div><dt>You choose what to save</dt><dd>Save every video you open, or only when you click Save. Skip videos over a length you set.</dd></div>
+          </dl>
+        </div>
+        <div class="shot-wrap">
+          <img class="shot" src="popup.png" width="330" height="733" alt="The StreamKeep popup: the current video saving at 64%, settings for quality and format, and a list of saved videos." loading="lazy">
+          <p class="shot-cap">The toolbar popup, mid-save.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p class="intro">StreamKeep has two parts: the browser extension, and a small helper that does the saving with <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a> and ffmpeg. Set up the helper once, then add the extension to your browser.</p>
+
+      <div class="first">
+        <div>
+          <h3>First, the helper</h3>
+          <p>Works on macOS and Linux. It runs in the background, starts when you log in, and only listens on your own computer.</p>
+        </div>
+<pre># macOS (on Linux, use your package manager)
+brew install yt-dlp ffmpeg
+git clone https://github.com/DavidMusijenko/streamkeep
+cd streamkeep
+./helper/install.sh</pre>
+      </div>
+
+      <div class="install">
+        <div class="card">
+          <h3>Chrome</h3>
+          <p class="os">Also Edge, Brave, Arc and other Chromium browsers</p>
+          <ol>
+            <li>Download the Chrome zip from the <a href="https://github.com/DavidMusijenko/streamkeep/releases/latest">latest release</a> and unzip it.</li>
+            <li>Open <code>chrome://extensions</code> and turn on Developer mode.</li>
+            <li>Click "Load unpacked" and pick the unzipped folder.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Firefox</h3>
+          <p class="os">Version 128 or newer</p>
+          <ol>
+            <li>Download the Firefox zip from the <a href="https://github.com/DavidMusijenko/streamkeep/releases/latest">latest release</a>.</li>
+            <li>Open <code>about:debugging</code>, choose "This Firefox", then "Load Temporary Add-on", and pick the zip.</li>
+            <li>Firefox removes temporary add-ons when it quits. To keep it, use Firefox Developer Edition with signing turned off.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Safari</h3>
+          <p class="os">macOS, needs Xcode</p>
+          <ol>
+            <li>Run <code>TEAM=your-team-id ./install-app.sh</code> in the repo. A free Apple ID works.</li>
+            <li>In Safari, open Settings, then Extensions, and tick StreamKeep.</li>
+            <li>On youtube.com, choose "Always Allow on This Website".</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 style="margin-bottom:40px">Questions</h2>
+      <div class="faq">
+        <div><h3>Is this a video downloader?</h3><p>Not in the usual sense. It doesn't give you files to keep or share. It keeps a temporary copy of what you're already watching so playback doesn't stop, and deletes it after a while.</p></div>
+        <div><h3>Is it allowed?</h3><p>YouTube's terms don't allow saving videos outside its own features, so using StreamKeep is your own call. YouTube Premium offers official offline playback in its apps.</p></div>
+        <div><h3>Why does it need a helper app?</h3><p>Browsers can't save a whole YouTube video by themselves. The helper uses yt-dlp to save it, then hands it to the extension, which plays it inside the page.</p></div>
+        <div><h3>How much space does it use?</h3><p>About what the video weighs: roughly 100 MB for ten minutes at 1080p. The default limit is 30 GB, and you can lower it.</p></div>
+        <div><h3>Does it see what I watch?</h3><p>Only your computer does. There are no servers, analytics or accounts. The code is all on GitHub.</p></div>
+        <div><h3>Will it be in the extension stores?</h3><p>The Chrome Web Store and Apple's App Store don't accept YouTube saving tools, so StreamKeep is shared as source and release builds here.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>StreamKeep is an independent open-source project under the MIT license. It is not affiliated with, endorsed by, or sponsored by YouTube or Google. YouTube is a trademark of Google LLC.</p>
+    <p><a href="https://github.com/DavidMusijenko/streamkeep">Source on GitHub</a></p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const DUR = 252; // 4:12
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const caps = [
+    "<b>You open a video.</b> StreamKeep starts saving it right away, and the toolbar icon counts up.",
+    "<b>Saved.</b> The icon turns green: the whole video is on your computer now.",
+    "<b>The Wi-Fi drops.</b> YouTube's own buffer is about to run out.",
+    "<b>It keeps playing.</b> The saved copy takes over at the same second, all the way to the end.",
+  ];
+  let stage = -1;
+  function setStage(n) {
+    if (n === stage) return;
+    stage = n;
+    $("caption").innerHTML = caps[n];
+  }
+  function render(t) {
+    // t: 0..1 through one loop
+    const saved = Math.min(1, t / 0.32);           // saving: 0 - 32%
+    const offline = t > 0.46;
+    // playback time: frozen during the short stall after the drop
+    const te = t < 0.46 ? t : t < 0.52 ? 0.46 : t - 0.06;
+    const play = 0.05 + te * 0.6;                   // playhead position
+    const ytBuf = offline ? 0.05 + 0.46 * 0.6 + 0.06 : Math.min(1, play + 0.06);
+    $("saved").style.width = saved * 100 + "%";
+    $("yt").style.width = ytBuf * 100 + "%";
+    $("played").style.width = play * 100 + "%";
+    $("knob").style.left = play * 100 + "%";
+    $("time").textContent = `${fmt(play * DUR)} / ${fmt(DUR)}`;
+    $("scene").style.transform = `translateX(${-((te * 50) % 50)}%)`;
+    const done = saved >= 1;
+    $("pct").textContent = Math.round(saved * 100) + "%";
+    $("pct").style.opacity = done ? 0 : 1;
+    document.querySelector(".ext .g").style.opacity = done ? 1 : 0;
+    $("wifi").style.color = offline ? "var(--red)" : "var(--green)";
+    $("wifi").querySelector(".on").style.display = offline ? "none" : "";
+    $("wifi").querySelector(".off").style.display = offline ? "block" : "none";
+    $("wifiText").textContent = offline ? "Offline" : "Online";
+    // brief stall right after the drop, then the saved copy takes over
+    const stall = t > 0.46 && t < 0.52;
+    $("spin").style.opacity = stall ? 1 : 0;
+    $("tag").style.opacity = t >= 0.52 ? 1 : 0;
+    setStage(t < 0.32 ? 0 : t < 0.46 ? 1 : t < 0.52 ? 2 : 3);
+    return stall;
+  }
+  if (reduce) { render(0.8); return; }
+  const LOOP = 16000;
+  let start = null, frozenAt = null, spinAngle = 0;
+  function frame(now) {
+    if (start === null) start = now;
+    const t = ((now - start) % LOOP) / LOOP;
+    const stall = render(t);
+    if (stall) { spinAngle += 8; $("spin").style.transform = `rotate(${spinAngle}deg)`; }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

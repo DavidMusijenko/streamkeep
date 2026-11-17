@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  YT Offline
+//  StreamKeep
 //
 //  Created by DM on 16.11.2026.
 //

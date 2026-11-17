@@ -1,6 +1,6 @@
 //
 //  SafariWebExtensionHandler.swift
-//  YT Offline Extension
+//  StreamKeep Extension
 //
 //  Native fallback relay: if Safari won't let background.js fetch the local
 //  helper (http://127.0.0.1:8765) directly, it sends {path, range} here and

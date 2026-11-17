@@ -2,3 +2,5 @@ safari/build/
 xcuserdata/
 .DS_Store
 __pycache__/
+dist/
+safari/StreamKeep/StreamKeep Extension/Resources/

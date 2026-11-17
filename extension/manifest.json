@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YT Offline",
-  "version": "1.7",
-  "description": "Caches every YouTube video you open and keeps playing it on the same page when the internet drops.",
+  "name": "StreamKeep",
+  "version": "2.0",
+  "description": "Keeps YouTube playing when your internet drops: saves the video you're watching and plays it on the same page.",
   "icons": {
     "48": "icon-48.png",
     "96": "icon-96.png",
@@ -11,7 +11,7 @@
     "512": "icon-512.png"
   },
   "action": {
-    "default_title": "YT Offline",
+    "default_title": "StreamKeep",
     "default_icon": {
       "16": "icon-16.png",
       "19": "icon-19.png",
@@ -43,5 +43,6 @@
     "https://www.youtube.com/*",
     "https://m.youtube.com/*",
     "http://127.0.0.1/*"
-  ]
+  ],
+  "homepage_url": "https://github.com/DavidMusijenko/streamkeep"
 }

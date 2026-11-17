@@ -1,8 +1,10 @@
+// StreamKeep background script (Safari, Chrome, Firefox).
 // Relays requests from the content script and popup to the local helper on
-// 127.0.0.1. The YouTube page itself can't reach http://127.0.0.1 (WebKit
-// blocks mixed content), so the extension does it: first with fetch, and if
-// Safari blocks that too, through the app's native handler
+// 127.0.0.1. The YouTube page itself can't reach http://127.0.0.1 (browsers
+// block mixed content), so the extension does it: with fetch, and in Safari,
+// if that is blocked too, through the app's native handler
 // (SafariWebExtensionHandler.swift).
+globalThis.browser ??= globalThis.chrome;
 const HELPER = "http://127.0.0.1:8765";
 const ALLOWED =
   /^\/(?:(?:status|index|cancel|delete)\?v=[\w-]{11}|cache\?v=[\w-]{11}&q=\d+&c=[a-z0-9,]+&max=\d+|list|clear|open|ping|log\?m=[\w%.~!*'()-]{1,600}|config(?:\?days=\d+&maxgb=\d+)?|video\/[\w-]{11}\.mp4)$/;
@@ -23,7 +25,8 @@ async function viaFetch(path, range) {
 }
 
 async function viaNative(path, range) {
-  const r = await browser.runtime.sendNativeMessage("com.ytoffline.app", { path, range: range || null });
+  if (!browser.runtime.sendNativeMessage) throw new Error("helper not running");
+  const r = await browser.runtime.sendNativeMessage("com.streamkeep.app", { path, range: range || null });
   if (!r || r.error) throw new Error(r ? r.error : "no response from native handler");
   return r;
 }
@@ -88,7 +91,7 @@ async function showBadge(b, tabId) {
   if (b && b.color && a.setBadgeBackgroundColor) {
     await tryCall("setBadgeBackgroundColor", () => a.setBadgeBackgroundColor({ ...opts, color: b.color }));
   }
-  await tryCall("setTitle", () => a.setTitle({ ...opts, title: (b && b.title) || "YT Offline" }));
+  await tryCall("setTitle", () => a.setTitle({ ...opts, title: (b && b.title) || "StreamKeep" }));
   const icon = ICONS[(b && b.icon) || "red"] || ICONS.red;
   await tryCall("setIcon", () => a.setIcon({ ...opts, path: icon }));
 }
@@ -124,7 +127,7 @@ browser.tabs
   .then(([t]) => { if (t) activeTabId = t.id; })
   .catch(() => {});
 
-browser.runtime.onMessage.addListener((msg, sender) => {
+function handle(msg, sender) {
   if (!msg) return undefined;
   if (msg.type === "badge" && sender.tab) {
     setBadge(sender.tab.id, { text: msg.text, color: msg.color, title: msg.title, icon: msg.icon }, !!sender.tab.active);
@@ -135,4 +138,13 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type !== "get" || !ALLOWED.test(msg.path)) return undefined;
   if (msg.range && !/^bytes=\d+-\d+$/.test(msg.range)) return undefined;
   return helper(msg.path, msg.range).catch((e) => ({ error: String((e && e.message) || e) }));
+}
+
+// sendResponse + `return true` works in every browser (Chrome ignores a
+// returned Promise).
+browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const r = handle(msg, sender);
+  if (!r) return false;
+  r.then(sendResponse, (e) => sendResponse({ error: String((e && e.message) || e) }));
+  return true;
 });
