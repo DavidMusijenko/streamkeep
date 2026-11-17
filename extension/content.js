@@ -1,4 +1,4 @@
-// YT Offline content script.
+// StreamKeep content script.
 // 1. On every /watch page, asks the local helper to save the video (or only
 //    when you click "Save" in the popup, if auto-save is off).
 // 2. When the connection really drops (offline event, YouTube's error screen,
@@ -7,13 +7,14 @@
 // The saved copy is streamed fragment by fragment into a MediaSource, so it
 // plays inside the YouTube page without any mixed-content loads.
 // Status is shown on the toolbar icon; controls live in the popup.
+globalThis.browser ??= globalThis.chrome;
 (() => {
   // If a second copy of this extension is installed (e.g. a stray build), only
   // the first one to load acts on the page; two copies pause each other.
   const me = browser.runtime.getURL("");
-  const owner = document.documentElement.getAttribute("data-yt-offline");
+  const owner = document.documentElement.getAttribute("data-streamkeep");
   if (owner && owner !== me) return;
-  document.documentElement.setAttribute("data-yt-offline", me);
+  document.documentElement.setAttribute("data-streamkeep", me);
 
   const STALL_SECS = 4;
   const AHEAD_SECS = 60; // how far ahead of the playhead to keep buffered
@@ -46,15 +47,17 @@
     for (const [k, c] of Object.entries(changes)) if (k in DEFAULTS) settings[k] = c.newValue;
   });
 
-  // codecs this Safari can play through MediaSource, best first
+  // codecs this browser can play through MediaSource, best first
   function playableCodecs() {
-    if (settings.codec === "h264") return ["avc1"];
     const MS = window.MediaSource || window.ManagedMediaSource;
-    const ok = (c) => !!MS && MS.isTypeSupported(`video/mp4; codecs="${c}, mp4a.40.2"`);
+    const ok = (c, kind = "video") => !!MS && MS.isTypeSupported(`${kind}/mp4; codecs="${c}"`);
+    // audio: AAC everywhere it plays, else Opus (e.g. Chromium without AAC)
+    const audio = ok("mp4a.40.2", "audio") || !ok("opus", "audio") ? "mp4a" : "opus";
+    if (settings.codec === "h264") return ["avc1", audio];
     const list = [];
     if (ok("av01.0.08M.08")) list.push("av01");
     if (ok("vp09.00.40.08")) list.push("vp09");
-    list.push("avc1");
+    list.push("avc1", audio);
     return list;
   }
 
@@ -108,7 +111,7 @@
       const idx = await helperJson(`/index?v=${this.id}`);
       if (idx.error) throw new Error(idx.error);
       const MS = window.MediaSource || window.ManagedMediaSource;
-      if (!MS || !MS.isTypeSupported(idx.mime)) throw new Error(`Safari can't play ${idx.mime}`);
+      if (!MS || !MS.isTypeSupported(idx.mime)) throw new Error(`This browser can't play ${idx.mime}`);
       this.idx = idx;
       this.ms = new MS();
       if (MS !== window.MediaSource) this.video.disableRemotePlayback = true;
@@ -219,18 +222,18 @@
     const pct = Math.round(st.progress || 0);
     // saved video = green icon, no badge; downloading = red icon + percentage
     const [text, color, title, icon] = !vid
-      ? ["", null, "YT Offline: open a video"]
+      ? ["", null, "StreamKeep: open a video"]
       : overlay
-        ? ["", null, "YT Offline: playing the saved copy", "green"]
+        ? ["", null, "StreamKeep: playing the saved copy", "green"]
         : {
-            none: ["", null, settings.autoSave ? "YT Offline: starting" : "YT Offline: not saved (open to save)"],
-            queued: ["…", "#555", "YT Offline: queued"],
-            downloading: [`${pct}%`, "#1565c0", `YT Offline: saving ${pct}%`],
-            done: ["", null, "YT Offline: saved for offline", "green"],
-            error: ["!", "#c62828", `YT Offline: couldn't save. ${st.error || ""}`],
-            skipped: ["–", "#555", `YT Offline: not saved (${st.error || "skipped"})`],
-            nohelper: ["!", "#c62828", "YT Offline: helper not running"],
-          }[st.state] || ["", null, "YT Offline"];
+            none: ["", null, settings.autoSave ? "StreamKeep: starting" : "StreamKeep: not saved (open to save)"],
+            queued: ["…", "#555", "StreamKeep: queued"],
+            downloading: [`${pct}%`, "#1565c0", `StreamKeep: saving ${pct}%`],
+            done: ["", null, "StreamKeep: saved for offline", "green"],
+            error: ["!", "#c62828", `StreamKeep: couldn't save. ${st.error || ""}`],
+            skipped: ["–", "#555", `StreamKeep: not saved (${st.error || "skipped"})`],
+            nohelper: ["!", "#c62828", "StreamKeep: helper not running"],
+          }[st.state] || ["", null, "StreamKeep"];
     renderPlayerButton();
     const key = text + color + title + icon;
     if (key === lastIcon) return;
@@ -649,7 +652,13 @@
   }
 
   // ---------- popup commands ----------
-  browser.runtime.onMessage.addListener((msg) => {
+  browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    const r = onPopupMessage(msg);
+    if (!r) return false;
+    r.then(sendResponse, (e) => sendResponse({ error: String((e && e.message) || e) }));
+    return true;
+  });
+  function onPopupMessage(msg) {
     if (!msg) return undefined;
     switch (msg.type) {
       case "info":
@@ -683,7 +692,7 @@
       default:
         return undefined;
     }
-  });
+  }
 
   // re-send the toolbar badge when this tab comes to the front
   document.addEventListener("visibilitychange", () => {

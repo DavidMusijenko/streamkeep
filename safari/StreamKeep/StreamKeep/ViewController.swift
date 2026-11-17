@@ -1,6 +1,6 @@
 //
 //  ViewController.swift
-//  YT Offline
+//  StreamKeep
 //
 //  Created by DM on 16.11.2026.
 //
@@ -9,7 +9,7 @@ import Cocoa
 import SafariServices
 import WebKit
 
-let extensionBundleIdentifier = "com.ytoffline.app.Extension"
+let extensionBundleIdentifier = "com.streamkeep.app.Extension"
 
 class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHandler {
 

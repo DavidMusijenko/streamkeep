@@ -1,4 +1,5 @@
-// YT Offline popup: status of the current tab's video, settings, saved videos.
+globalThis.browser ??= globalThis.chrome;
+// StreamKeep popup: status of the current tab's video, settings, saved videos.
 const DEFAULTS = { autoSave: true, autoSwitch: true, quality: 1440, codec: "auto", maxMinutes: 0 };
 const $ = (id) => document.getElementById(id);
 let tabId = null;
@@ -37,10 +38,11 @@ function show(id, on) {
 
 // ---------- this video ----------
 function playableCodecs(codec) {
-  if (codec === "h264") return ["avc1"];
   const MS = window.MediaSource || window.ManagedMediaSource;
-  const ok = (c) => !!MS && MS.isTypeSupported(`video/mp4; codecs="${c}, mp4a.40.2"`);
-  return [...(ok("av01.0.08M.08") ? ["av01"] : []), ...(ok("vp09.00.40.08") ? ["vp09"] : []), "avc1"];
+  const ok = (c, kind = "video") => !!MS && MS.isTypeSupported(`${kind}/mp4; codecs="${c}"`);
+  const audio = ok("mp4a.40.2", "audio") || !ok("opus", "audio") ? "mp4a" : "opus";
+  if (codec === "h264") return ["avc1", audio];
+  return [...(ok("av01.0.08M.08") ? ["av01"] : []), ...(ok("vp09.00.40.08") ? ["vp09"] : []), "avc1", audio];
 }
 
 async function cachePath(vid) {
@@ -154,10 +156,12 @@ async function renderCache() {
     data = await helper("/list");
     $("dot").className = "dot ok";
     $("helperText").textContent = "helper running";
+    show("setup", false);
   } catch (e) {
     $("dot").className = "dot bad";
     $("helperText").textContent = "helper not running";
-    $("cacheSummary").textContent = "Start it with helper/install.sh";
+    $("cacheSummary").textContent = "";
+    show("setup", true);
     return;
   }
   $("days").value = String(data.config.days);
@@ -231,8 +235,23 @@ $("bClear").onclick = async () => {
   await Promise.all([renderCache(), renderVideo()]);
 };
 
+// ---------- permissions (Firefox asks for host access separately) ----------
+const ORIGINS = ["https://www.youtube.com/*", "https://m.youtube.com/*", "http://127.0.0.1/*"];
+async function checkPermissions() {
+  if (!browser.permissions || !browser.permissions.contains) return;
+  try {
+    show("perm", !(await browser.permissions.contains({ origins: ORIGINS })));
+  } catch (_) { /* not supported: assume granted */ }
+}
+$("bPerm").onclick = async () => {
+  try {
+    if (await browser.permissions.request({ origins: ORIGINS })) show("perm", false);
+  } catch (_) { /* dismissed */ }
+};
+
 // ---------- start ----------
 (async () => {
+  checkPermissions();
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   tabId = tab ? tab.id : null;
   try {

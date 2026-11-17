@@ -42,14 +42,29 @@
   .item .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
   .item button { padding: 2px 6px; background: transparent; color: var(--muted); }
   .muted { color: var(--muted); }
+  a { color: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
   <header>
-    <h1>YT Offline</h1>
+    <h1>StreamKeep</h1>
     <span id="helper"><span class="dot" id="dot"></span> <span id="helperText">checking…</span></span>
   </header>
+
+  <section id="perm" hidden>
+    <div class="card">
+      <div class="status">StreamKeep needs access to YouTube and to its local helper (127.0.0.1) to save videos.</div>
+      <button class="primary" id="bPerm">Allow access</button>
+    </div>
+  </section>
+
+  <section id="setup" hidden>
+    <div class="card">
+      <div class="status">The StreamKeep helper isn't running. It does the saving on your computer.</div>
+      <a id="setupLink" href="https://github.com/DavidMusijenko/streamkeep#install" target="_blank" rel="noopener">How to install it</a>
+    </div>
+  </section>
 
   <section>
     <h2>This video</h2>
@@ -84,7 +99,7 @@
       </select></label>
     <label class="set"><span>Format<small>VP9/AV1 look sharper than H.264</small></span>
       <select id="codec">
-        <option value="auto">Best Safari can play</option>
+        <option value="auto">Best supported</option>
         <option value="h264">H.264 only</option>
       </select></label>
     <label class="set"><span>Save videos<small>When to download</small></span>
